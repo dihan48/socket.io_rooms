@@ -4,22 +4,50 @@ import io from "socket.io-client";
 import { randomBytes } from "crypto";
 import styles from "../styles/Home.module.css";
 
+let updateInfo = (data) => {};
+
 export default function Home() {
   const [socketStatus, setSocketStatus] = useState("disconnect");
   const socketRef = useRef();
   const [allRooms, setAllRooms] = useState([]);
   const allRoomsRef = useRef();
+  const setAllRoomsRef = useRef();
   const [allRoomsInfo, setAllRoomsInfo] = useState(new Map());
   const allRoomsInfoRef = useRef();
+  const setAllRoomsInfoRef = useRef();
   const [userRooms, setUserRooms] = useState(new Set());
   const userRoomsRef = useRef();
+  const setUserRoomsRef = useRef();
   const [online, setOnline] = useState(0);
+
+  const [info, setInfo] = useState([]);
+
+  const allRoomsDataRef = useRef();
 
   useEffect(() => {
     allRoomsRef.current = allRooms;
-    userRoomsRef.current = userRooms;
+    setAllRoomsRef.current = setAllRooms;
     allRoomsInfoRef.current = allRoomsInfo;
-  }, [allRooms, userRooms]);
+    setAllRoomsInfoRef.current = setAllRoomsInfo;
+    userRoomsRef.current = userRooms;
+    setUserRoomsRef.current = setUserRooms;
+  }, [
+    allRooms,
+    setAllRooms,
+    allRoomsInfo,
+    setAllRoomsInfo,
+    userRooms,
+    setUserRooms,
+  ]);
+
+  useEffect(() => {
+    updateInfo = (data) => {
+      console.log(`[updateInfo]`);
+      const val = JSON.parse(data);
+      info.push(val);
+      setInfo(info);
+    };
+  }, [info, setInfo]);
 
   useEffect(() => {
     let sessionId = localStorage.getItem("session");
@@ -28,7 +56,7 @@ export default function Home() {
       localStorage.setItem("session", sessionId);
     }
 
-    socketRef.current = io("ws://localhost:8080", {
+    socketRef.current = io("http://localhost:8080", {
       auth: {
         token: getCookie("token"),
         sessionId,
@@ -65,18 +93,29 @@ export default function Home() {
     });
 
     socketRef.current.on("getUserRooms", (data) => {
-      // console.log(`[getUserRooms] `, data);
+      console.log(`[getUserRooms] `, data);
       const rooms = JSON.parse(data);
       if (Array.isArray(rooms)) {
         const userRooms = new Set(rooms);
-        setUserRooms(userRooms);
+        setUserRoomsRef.current(userRooms);
         // console.log(`[getUserRooms Old allRooms] `, allRoomsRef.current);
         const newAllRooms = allRoomsRef.current?.map((room) => ({
           name: room.name,
           join: userRooms.has(room.name),
         }));
         // console.log(`[getUserRooms allRooms] `, newAllRooms);
-        setAllRooms(newAllRooms);
+        setAllRoomsRef.current(newAllRooms);
+      }
+      if (allRoomsDataRef.current) {
+        const newInfo = new Map(allRoomsInfoRef.current);
+        for (const info of allRoomsDataRef.current) {
+          newInfo.set(info.name, {
+            usersCount: info.usersCount,
+            socketCount: info.socketCount,
+          });
+        }
+        allRoomsDataRef.current = [];
+        setAllRoomsInfoRef.current(newInfo);
       }
     });
 
@@ -89,12 +128,39 @@ export default function Home() {
       console.log(msg);
     });
 
-    socketRef.current.on("roomInfo", (data) => {
+    socketRef.current.on("updateRoom", updateInfo);
+
+    socketRef.current.on("updateRoom", (data) => {
       const info = JSON.parse(data);
-      const newInfo = new Map(allRoomsInfoRef.current);
-      console.log(newInfo);
-      newInfo.set(info.name, info.ids);
-      setAllRoomsInfo(newInfo);
+      if (allRoomsDataRef.current) {
+        allRoomsDataRef.current.push(info);
+      } else {
+        allRoomsDataRef.current = [];
+        allRoomsDataRef.current.push(info);
+      }
+      console.log(
+        `[updateRoom] allRoomsDataRef.current : ${allRoomsDataRef.current}`
+      );
+      if (allRoomsDataRef.current) {
+        const newInfo = new Map(allRoomsInfoRef.current);
+        for (const info of allRoomsDataRef.current) {
+          newInfo.set(info.name, {
+            socketCount: info.socketCount,
+            usersCount: info.usersCount,
+          });
+        }
+        allRoomsDataRef.current = [];
+        setAllRoomsInfoRef.current(newInfo);
+      }
+      // console.log("[updateRoom] ", data);
+      // console.log(`[allRoomsInfoRef.current] ${[...allRoomsInfoRef.current]}`);
+      // const newInfo = new Map(allRoomsInfoRef.current);
+      // console.log(`[newInfo] ${[...newInfo]}`);
+      // allRoomsInfoRef.current.set(info.name, info.ids);
+      // newInfo.set(info.name, info.ids);
+      // console.log(`[allRoomsInfoRef.current] ${[...allRoomsInfoRef.current]}`);
+      // console.log(`[newInfo] ${[...newInfo]}`);
+      // setAllRoomsInfoRef.current(newInfo);
     });
 
     socketRef.current.on("allRooms", (data) => {
@@ -106,7 +172,7 @@ export default function Home() {
           join: userRoomsRef.current?.has(room),
         }));
         // console.log(`[allRooms] `, allRooms);
-        setAllRooms(allRooms);
+        setAllRoomsRef.current(allRooms);
       }
     });
 
@@ -123,9 +189,12 @@ export default function Home() {
     };
   }, []);
 
-  const joinRoom = (room, join) => {
-    console.log("emit joinRoom " + room);
-    socketRef.current?.emit("joinRoom", room, join);
+  const joinRoom = (room) => {
+    socketRef.current?.emit("joinRoom", room);
+  };
+
+  const leaveRoom = (room) => {
+    socketRef.current?.emit("leaveRoom", room);
   };
 
   return (
@@ -148,13 +217,21 @@ export default function Home() {
               {allRooms.map((room) => (
                 <button
                   key={room.name}
-                  onClick={() => joinRoom(room.name, !room.join)}
+                  onClick={() =>
+                    room.join ? leaveRoom(room.name) : joinRoom(room.name)
+                  }
                 >
                   <h5>{room.join ? "Leave" : "Join"}</h5>
                   <h4>{room.name}</h4>
                   {room.join && allRoomsInfo?.has(room.name) && (
-                    <h6>Members: {allRoomsInfo.get(room.name).length}</h6>
+                    <>
+                      <h6>
+                        sockets: {allRoomsInfo.get(room.name)?.socketCount}
+                      </h6>
+                      <h6>users: {allRoomsInfo.get(room.name)?.usersCount}</h6>
+                    </>
                   )}
+                  
                 </button>
               ))}
             </div>
