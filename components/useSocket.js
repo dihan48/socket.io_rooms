@@ -1,49 +1,73 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import io from "socket.io-client";
-export default function useSocket(setSocket, setSocketStatus) {
-  const socketRef = useRef();
-  const [rooms, setRooms] = useState();
+import { getCookie } from "./cookie";
+
+export default function useSocket(url) {
+  const [socket, setSocket] = useState();
+  const [status, setStatus] = useState("disconnect");
+
   useEffect(() => {
-    socketRef.current = io("ws://localhost:8080");
+    let sessionId = localStorage.getItem("session");
+    if (sessionId == false) {
+      sessionId = randomBytes(48).toString("hex");
+      localStorage.setItem("session", sessionId);
+    }
 
-    socketRef.current.io.on("reconnect_attempt", () => {
-      console.log(`[socket] attempt reconnect`);
+    const socket = io(url, {
+      auth: {
+        token: getCookie("token"),
+        sessionId,
+      },
     });
 
-    socketRef.current.io.on("reconnect", () => {
-      console.log(`[socket] reconnect`);
-    });
-
-    socketRef.current.on("connect", () => {
-      setSocketStatus?.("connected");
-      console.log(`[socket] connect ${socketRef.current.id}`);
-      socket.emit("getRooms");
-      socket.on("getRooms", (data) => {
-        console.log(`[getRooms] `, data)
-        const rooms = JSON.parse(data);
-        if (Array.isArray(rooms)) {
-          setRooms(rooms);
-        }
-      });
-    });
-
-    socketRef.current.on("disconnect", (reason) => {
-      setSocketStatus?.(reason);
-      if (reason === "io server disconnect") {
-        socket.connect();
-      }
-      console.log(`[socket] disconnect: ${reason}`);
-    });
-
-    socketRef.current.on("connect_error", (error) => {
-      console.error(error);
-    });
-
-    setSocket(socketRef.current);
+    setSocket(socket);
 
     return () => {
       console.log("[socket] client closed connection");
-      socketRef.current.disconnect();
+      socket.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on("connect", onConnect);
+      socket.on("disconnect", onDisconnect);
+      socket.on("connect_error", onConnectError);
+      socket.io.on("reconnect_attempt", onReconnectAttempt);
+      socket.io.on("reconnect", onReconnect);
+    }
+  }, [socket]);
+
+  function onConnect() {
+    setStatus("connected");
+    console.log(`[socket] connect ${socket.id}`);
+    socket.emit("getAllRooms");
+    socket.emit("getUserRooms");
+  }
+
+  function onDisconnect(reason) {
+    setStatus(reason);
+    if (reason === "io server disconnect") {
+      socket.auth = {
+        token: getCookie("token"),
+        sessionId,
+      };
+      socket.connect();
+    }
+    console.log(`[socket] disconnect: ${reason}`);
+  }
+
+  function onConnectError(error) {
+    console.error(error);
+  }
+
+  function onReconnectAttempt() {
+    console.log(`[socket] attempt reconnect`);
+  }
+
+  function onReconnect() {
+    console.log(`[socket] reconnect`);
+  }
+
+  return [socket, status];
 }
