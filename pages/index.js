@@ -5,7 +5,9 @@ import useSocketRooms from "../components/useSocketRooms";
 import styles from "../styles/Home.module.css";
 
 export default function Home() {
-  const [socket, status] = useSocket("http://localhost:8080");
+  const [socket, status] = useSocket("", {
+    path: "/api/socketio",
+  });
   const [online, allRooms, userRoomsInfo, userRooms, joinRoom, leaveRoom] =
     useSocketRooms(socket);
 

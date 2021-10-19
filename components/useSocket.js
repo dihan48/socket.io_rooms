@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import { getCookie } from "./cookie";
 
-export default function useSocket(url) {
+export default function useSocket(url, options) {
   const [socket, setSocket] = useState();
   const [status, setStatus] = useState("disconnect");
 
@@ -14,6 +14,7 @@ export default function useSocket(url) {
     }
 
     const socket = io(url, {
+      ...options,
       auth: {
         token: getCookie("token"),
         sessionId,
